@@ -1,6 +1,7 @@
 package hlsdl
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -36,6 +37,7 @@ type HlsDl struct {
 	startTime  int64
 	segTotal   int64
 	segCurrent int64
+	hexKey     string
 }
 
 type Segment struct {
@@ -64,6 +66,13 @@ func New(hlsURL string, headers map[string]string, dir, filename string, workers
 	}
 
 	return hlsdl
+}
+
+// SetHexKey sets a hex-encoded AES-128 key to use for decryption
+// instead of fetching the key from the URI in the manifest.
+// The hex string may optionally start with "0x".
+func (hlsDl *HlsDl) SetHexKey(hexKey string) {
+	hlsDl.hexKey = hexKey
 }
 
 func wait(wg *sync.WaitGroup) chan bool {
@@ -185,20 +194,38 @@ func (hlsDl *HlsDl) Download() (string, error) {
 }
 
 func (hlsDl *HlsDl) getKey(segment *Segment) (key []byte, iv []byte, err error) {
-	res, err := hlsDl.client.SetHeaders(hlsDl.headers).R().Get(segment.Key.URI)
-	if err != nil {
-		return nil, nil, err
-	}
-	if res.StatusCode() != 200 {
-		return nil, nil, errors.New("failed to get descryption key")
+	if hlsDl.hexKey != "" {
+		key, err = parseHexKey(hlsDl.hexKey)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		res, err := hlsDl.client.SetHeaders(hlsDl.headers).R().Get(segment.Key.URI)
+		if err != nil {
+			return nil, nil, err
+		}
+		if res.StatusCode() != 200 {
+			return nil, nil, errors.New("failed to get decryption key")
+		}
+		key = res.Body()
 	}
 
-	key = res.Body()
 	iv = []byte(segment.Key.IV)
 	if len(iv) == 0 {
 		iv = defaultIV(segment.SeqId)
 	}
 	return
+}
+
+// parseHexKey decodes a hex-encoded key string, stripping an optional "0x" prefix.
+func parseHexKey(hexKey string) ([]byte, error) {
+	hexKey = strings.TrimPrefix(hexKey, "0x")
+	hexKey = strings.TrimPrefix(hexKey, "0X")
+	key, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex key: %w", err)
+	}
+	return key, nil
 }
 
 func (hlsDl *HlsDl) GetProgress() float64 {
