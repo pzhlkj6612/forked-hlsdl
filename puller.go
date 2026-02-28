@@ -28,6 +28,29 @@ func pullSegment(hlsURL string, quitSignal chan os.Signal) chan *SegmentPuller {
 			return
 		}
 
+		// Resolve master playlist to media playlist URL
+		p, t, err := getM3u8ListType(hlsURL, nil)
+		if err != nil {
+			c <- &SegmentPuller{Err: err}
+			return
+		}
+		if t == m3u8.MASTER {
+			mediaURL, err := resolveMasterPlaylist(p.(*m3u8.MasterPlaylist), baseURL)
+			if err != nil {
+				c <- &SegmentPuller{Err: err}
+				return
+			}
+			hlsURL = mediaURL
+			baseURL, err = url.Parse(hlsURL)
+			if err != nil {
+				c <- &SegmentPuller{Err: err}
+				return
+			}
+		} else if t != m3u8.MEDIA {
+			c <- &SegmentPuller{Err: errors.New("No support the m3u8 format")}
+			return
+		}
+
 		pulledSegment := map[uint64]bool{}
 
 		for {

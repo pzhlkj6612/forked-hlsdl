@@ -21,6 +21,15 @@ func parseHlsSegments(hlsURL string, headers map[string]string) ([]*Segment, err
 	if err != nil {
 		return nil, err
 	}
+
+	if t == m3u8.MASTER {
+		mediaURL, err := resolveMasterPlaylist(p.(*m3u8.MasterPlaylist), baseURL)
+		if err != nil {
+			return nil, err
+		}
+		return parseHlsSegments(mediaURL, headers)
+	}
+
 	if t != m3u8.MEDIA {
 		return nil, errors.New("No support the m3u8 format")
 	}
@@ -59,6 +68,40 @@ func parseHlsSegments(hlsURL string, headers map[string]string) ([]*Segment, err
 	}
 
 	return segments, nil
+}
+
+func resolveMasterPlaylist(master *m3u8.MasterPlaylist, baseURL *url.URL) (string, error) {
+	if len(master.Variants) == 0 {
+		return "", errors.New("No variants found in master playlist")
+	}
+
+	var best *m3u8.Variant
+	for _, v := range master.Variants {
+		if v == nil {
+			continue
+		}
+		if best == nil || v.Bandwidth > best.Bandwidth {
+			best = v
+		}
+	}
+	if best == nil {
+		return "", errors.New("No variants found in master playlist")
+	}
+
+	variantURL := best.URI
+	parsed, err := url.Parse(variantURL)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme == "" {
+		resolved, err := baseURL.Parse(variantURL)
+		if err != nil {
+			return "", err
+		}
+		variantURL = resolved.String()
+	}
+
+	return variantURL, nil
 }
 
 func getM3u8ListType(url string, headers map[string]string) (m3u8.Playlist, m3u8.ListType, error) {
