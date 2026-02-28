@@ -89,7 +89,11 @@ func resolveMasterPlaylist(master *m3u8.MasterPlaylist, baseURL *url.URL) (strin
 	}
 
 	variantURL := best.URI
-	if !strings.Contains(variantURL, "http") {
+	parsed, err := url.Parse(variantURL)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme == "" {
 		resolved, err := baseURL.Parse(variantURL)
 		if err != nil {
 			return "", err
