@@ -18,6 +18,7 @@ type Recorder struct {
 	headers   map[string]string
 	filename  string
 	startTime int64
+	hexKey    string
 }
 
 func NewRecorder(url string, headers map[string]string, dir, filename string) *Recorder {
@@ -29,6 +30,13 @@ func NewRecorder(url string, headers map[string]string, dir, filename string) *R
 		filename:  filename,
 		startTime: time.Now().UnixMilli(),
 	}
+}
+
+// SetHexKey sets a hex-encoded AES-128 key to use for decryption
+// instead of fetching the key from the URI in the manifest.
+// The hex string may optionally start with "0x".
+func (r *Recorder) SetHexKey(hexKey string) {
+	r.hexKey = hexKey
 }
 
 // Start starts a record a live streaming
@@ -120,16 +128,24 @@ func (r *Recorder) downloadSegment(segment *Segment) ([]byte, error) {
 }
 
 func (r *Recorder) getKey(segment *Segment) (key []byte, iv []byte, err error) {
-	res, err := r.client.R().SetHeaders(r.headers).Get(segment.Key.URI)
-	if err != nil {
-		return nil, nil, err
+	if r.hexKey != "" {
+		key, err = parseHexKey(r.hexKey)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		res, err := r.client.R().SetHeaders(r.headers).Get(segment.Key.URI)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if res.StatusCode() != 200 {
+			return nil, nil, errors.New("Failed to get decryption key")
+		}
+
+		key = res.Body()
 	}
 
-	if res.StatusCode() != 200 {
-		return nil, nil, errors.New("Failed to get descryption key")
-	}
-
-	key = res.Body()
 	iv = []byte(segment.Key.IV)
 	if len(iv) == 0 {
 		iv = defaultIV(segment.SeqId)

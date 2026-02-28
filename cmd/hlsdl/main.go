@@ -22,6 +22,7 @@ func main() {
 	cmd.Flags().StringP("dir", "d", "./download", "The directory where the file will be stored")
 	cmd.Flags().BoolP("record", "r", false, "Indicate whether the m3u8 is a live stream video and you want to record it")
 	cmd.Flags().IntP("workers", "w", 2, "Number of workers to execute concurrent operations")
+	cmd.Flags().StringP("key", "k", "", "AES-128 decryption key in hex format (e.g. 0x12ab... or 12ab...)")
 	cmd.SetArgs(os.Args[1:])
 
 	if err := cmd.Execute(); err != nil {
@@ -59,16 +60,23 @@ func cmdF(command *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	hexKey, err := command.Flags().GetString("key")
+	if err != nil {
+		return err
+	}
 	if record, err := command.Flags().GetBool("record"); err != nil {
 		return err
 	} else if record {
-		return recordLiveStream(m3u8URL, headers, dir, output)
+		return recordLiveStream(m3u8URL, headers, dir, output, hexKey)
 	}
-	return downloadVodMovie(m3u8URL, headers, dir, output, workers)
+	return downloadVodMovie(m3u8URL, headers, dir, output, workers, hexKey)
 }
 
-func downloadVodMovie(url string, headers map[string]string, dir string, fileName string, workers int) error {
+func downloadVodMovie(url string, headers map[string]string, dir string, fileName string, workers int, hexKey string) error {
 	hlsDL := hlsdl.New(url, headers, dir, fileName, workers, true)
+	if hexKey != "" {
+		hlsDL.SetHexKey(hexKey)
+	}
 	filepath, err := hlsDL.Download()
 	if err != nil {
 		return err
@@ -77,8 +85,11 @@ func downloadVodMovie(url string, headers map[string]string, dir string, fileNam
 	return nil
 }
 
-func recordLiveStream(url string, headers map[string]string, dir, filename string) error {
+func recordLiveStream(url string, headers map[string]string, dir, filename, hexKey string) error {
 	recorder := hlsdl.NewRecorder(url, headers, dir, filename)
+	if hexKey != "" {
+		recorder.SetHexKey(hexKey)
+	}
 	recordedFile, err := recorder.Start()
 	if err != nil {
 		_ = os.RemoveAll(recordedFile)
